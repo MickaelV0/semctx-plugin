@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "semctx": {
+      "command": "bun",
+      "args": ["./dist/semctx-mcp.js"],
+      "cwd": "."
+    }
+  }
+}

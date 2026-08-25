@@ -1,0 +1,14 @@
+{
+  "name": "semctx",
+  "description": "Trace repository impact, authored intent and fail-closed migration plans, then verify changes with proof-honest verdicts. Local-first and deterministic.",
+  "version": "0.1.17",
+  "author": {
+    "name": "hoklims",
+    "email": "hoklims@gmail.com",
+    "url": "https://github.com/hoklims"
+  },
+  "homepage": "https://github.com/hoklims/semctx#readme",
+  "repository": "https://github.com/hoklims/semctx",
+  "license": "Apache-2.0",
+  "keywords": ["verify", "change-impact", "semantic-context", "invariants", "contracts", "migration", "control-plane"]
+}
