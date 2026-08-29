@@ -211,9 +211,15 @@ Prefer MCP tools when they are connected. For shell fallbacks, resolve the CLI i
    in the shell — where it is set at all, it is exported to hooks and MCP servers, not to your
    terminal. Do not try to guess the plugin directory, and do not assume the shell's cwd is the
    plugin package root: it is the user's repository.
-2. **Global `semctx` on PATH** (`bun install -g semctx@latest` / `bunx semctx@latest`) — keep it on the **same
+2. **Unsubstituted plugin-root (Oh My Pi / Grok)** — if the path below still contains the literal
+   `${CLAUDE_PLUGIN_ROOT}` placeholder, do not run it (the shell would collapse it to
+   `bun "/dist/semctx.js"`). Use the Oh My Pi git/link user-scope copy instead:
+   `bun "$HOME/.omp/plugins/node_modules/semctx/dist/semctx.js"`. XDG
+   (`$XDG_DATA_HOME/omp/…`) and `--scope project` (`.omp/plugins/…` in the repo) differ —
+   prefer MCP on those layouts.
+3. **Global `semctx` on PATH** (`bun install -g semctx@latest` / `bunx semctx@latest`) — keep it on the **same
    version** as the plugin (`semctx --version` should match the marketplace plugin version).
-3. If neither is available, say so and continue with MCP-only or ask the user to update the plugin /
+4. If none are available, say so and continue with MCP-only or ask the user to update the plugin /
    install the CLI — do not invent results.
 
 ```text
@@ -233,6 +239,11 @@ bun "${CLAUDE_PLUGIN_ROOT}/dist/semctx.js" control resume-handoff <capsule-hash>
 # Legacy Plane-B Handoff v1 compatibility
 bun "${CLAUDE_PLUGIN_ROOT}/dist/semctx.js" semantic handoff
 bun "${CLAUDE_PLUGIN_ROOT}/dist/semctx.js" semantic resume
+
+# Unsubstituted plugin-root (OMP git/link user-scope)
+bun "$HOME/.omp/plugins/node_modules/semctx/dist/semctx.js" status --json
+bun "$HOME/.omp/plugins/node_modules/semctx/dist/semctx.js" semantic check --json
+bun "$HOME/.omp/plugins/node_modules/semctx/dist/semctx.js" verify diff --base origin/main
 
 # Global / CI fallback — same subcommands, no path
 semctx --version
