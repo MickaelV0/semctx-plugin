@@ -211,12 +211,12 @@ Prefer MCP tools when they are connected. For shell fallbacks, resolve the CLI i
    in the shell — where it is set at all, it is exported to hooks and MCP servers, not to your
    terminal. Do not try to guess the plugin directory, and do not assume the shell's cwd is the
    plugin package root: it is the user's repository.
-2. **Unsubstituted plugin-root (Oh My Pi)** — if the path below still contains the literal
+2. **Unsubstituted plugin-root (Oh My Pi only)** — if the path below still contains the literal
    `${CLAUDE_PLUGIN_ROOT}` placeholder, do not run it (the shell would collapse it to
-   `bun "/dist/semctx.js"`). Oh My Pi bash expands `skill://semctx-control` (this skill's
-   registered name) to the skill directory; two dirnames are the plugin root on any layout:
-   `bun "$(dirname "$(dirname skill://semctx-control)")/dist/semctx.js"`. Requires OMP bash `skill://` expansion. Grok does not expand `skill://` —
-   prefer MCP there.
+   `bun "/dist/semctx.js"`). The Oh My Pi block assigns `$root` from
+   `skill://semctx-control` and runs the CLI **only when `$root` is absolute**. Claude Code
+   and Grok do not expand `skill://` (`$root` becomes `.`); the block fails closed — use
+   MCP, never `./dist/semctx.js`.
 3. **Global `semctx` on PATH** (`bun install -g semctx@latest` / `bunx semctx@latest`) — keep it on the **same
    version** as the plugin (`semctx --version` should match the marketplace plugin version).
 4. If none are available, say so and continue with MCP-only or ask the user to update the plugin /
@@ -240,10 +240,16 @@ bun "${CLAUDE_PLUGIN_ROOT}/dist/semctx.js" control resume-handoff <capsule-hash>
 bun "${CLAUDE_PLUGIN_ROOT}/dist/semctx.js" semantic handoff
 bun "${CLAUDE_PLUGIN_ROOT}/dist/semctx.js" semantic resume
 
-# Unsubstituted plugin-root (Oh My Pi; skill:// is this skill's session name)
-bun "$(dirname "$(dirname skill://semctx-control)")/dist/semctx.js" status --json
-bun "$(dirname "$(dirname skill://semctx-control)")/dist/semctx.js" semantic check --json
-bun "$(dirname "$(dirname skill://semctx-control)")/dist/semctx.js" verify diff --base origin/main
+# Unsubstituted plugin-root (Oh My Pi only; fails closed if skill:// does not expand)
+root="$(dirname "$(dirname skill://semctx-control)")"
+case "$root" in
+  /*)
+    bun "$root/dist/semctx.js" status --json
+    bun "$root/dist/semctx.js" semantic check --json
+    bun "$root/dist/semctx.js" verify diff --base origin/main
+    ;;
+  *) echo "semctx: skill://semctx-control did not expand to an absolute plugin root (Oh My Pi bash only); use MCP" >&2; false ;;
+esac
 
 # Global / CI fallback — same subcommands, no path
 semctx --version
