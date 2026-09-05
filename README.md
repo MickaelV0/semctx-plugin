@@ -15,7 +15,8 @@ runtime behaviour. The analysis is local and deterministic; semctx itself needs 
 - **Control-plane tools**: read-only `semctx_control_status`, `semctx_control_trace`, and
   `semctx_control_plan` for freshness preflight, bounded L0-L6 reconstruction, and fail-closed
   migration planning (Plane C); manual content-addressed `semctx_control_handoff` /
-  `semctx_control_resume`; plus the MCP-only advisory `semctx_control_agent_lifecycle` checkpoint.
+  `semctx_control_resume`; plus the advisory `semctx_control_agent_lifecycle` checkpoint, exposed
+  over MCP with no CLI equivalent.
 - **Bundled CLI** (`dist/semctx.js`): the full Bun CLI committed with the `dist/semctx-mcp.js`
   entry and their fixed root `dist/semctx-shared.js` runtime chunk, so a plugin update keeps agent
   MCP and CLI in lockstep. Agent sessions get its absolute path for free:
@@ -32,7 +33,10 @@ runtime behaviour. The analysis is local and deterministic; semctx itself needs 
   Oh My Pi loads a sibling adapter at `hooks/pre/semctx-guard.ts` (`pi.on("tool_call")` on the
   `bash` tool). Both call the same `evaluateBashGuard` decision (ADR 0007). The guard is **inert by
   default** (advisory) and, when the project opts into guarded mode, blocks non-isolated
-  `git commit` / `git push` commands or an unverified working state. Block messages point at the
+  `git commit` / `git push` commands or an unverified working state. Verification disables external diff/textconv helpers; commit-time
+  selection abbreviations and repository commit hooks that could restage after the pre-check are
+  rejected. Push requires an explicit non-delegating remote and exact `HEAD`; configured push/server options, remote helpers,
+  executable transport configuration, and URL rewrites fail closed. Block messages point at the
   plugin-bundled CLI by absolute path when the bundle is in reach, and at a global `semctx`
   otherwise. The semantic and control tools do not change this host-specific behaviour.
 
@@ -52,7 +56,7 @@ The verdict namespaces stay distinct:
 `READY` is never execution authority. Claude Code may edit only inside the user's write scope, and
 Plane C never performs a cutover, deployment or deletion.
 
-### MCP-only lifecycle foundation
+### Lifecycle foundation
 
 Codex and Claude Code expose the same strict lifecycle policy and report through
 `semctx_control_agent_lifecycle`. Agents must invoke it explicitly at
@@ -75,7 +79,18 @@ zero-obligation labels are reported separately and are the only phases the next 
 skip; empty legacy steps fail closed and unsatisfied migration obligations remain `UNPROVEN`. An
 edit-only step may focus the exact sealed observed hunk SHA-256 node at L0. Capture writes ignored
 local working state, remains manual, shadow-only, non-blocking, and grants
-`executionAuthority: "none"`. It is not invoked by the checkpoint. There are no automatic lifecycle hooks.
+`executionAuthority: "none"`. It is not invoked by the checkpoint.
+
+The plugin ships one shadow lifecycle hook that automates only the before_completion checkpoint:
+a `PostToolUse` entry matched on the bundled `semctx` MCP namespace records the canonical stage id of each Semctx MCP tool
+that ran, into a session-local git-ignored ledger under `.semctx/working/agent-lifecycle/`, and a
+`Stop` entry reports the checkpoint at end of turn on stderr, only when the observed set has
+changed since the last advisory. It never blocks (every path exits
+0, nothing is written to stdout), uses exactly `hook_event_name`, `session_id`, `cwd` and
+`tool_name` and does not retain, use, or reproduce any other envelope field, never opens the transcript file or
+repository source, never starts the Semctx runtime, and stays silent when it observed nothing.
+`SEMCTX_LIFECYCLE=off` disables it on its own. The other three checkpoints have no automatic
+host hook.
 Persisted or measured telemetry, enforcement, and an executor remain unshipped.
 Claude's existing optional commit/push guard is separate and invokes neither lifecycle surface.
 
@@ -100,10 +115,20 @@ SEMCTX_GUARD=off
 ```
 
 The guard only ever gates the two terminal git verbs — never file edits, tests, exploration, or
-non-terminal git commands. It compares a hash of the working diff to the last verified hash
+non-terminal git commands. It compares canonical analyzed-content and repository-state hashes
 (ADR 0007); it runs no analysis itself. In guarded mode, cwd prefixes must be literal and Git
 repository retargeting (`GIT_DIR`, `GIT_WORK_TREE`, `--git-dir`, `--work-tree`, and related forms)
-is rejected rather than compared against the session repository's hash.
+is rejected rather than compared against the session repository's hash. Command-local executable or
+configuration discovery overrides, explicit paths, proxy environment or Git HTTP configuration overrides,
+shell-expanded executable expressions, and shell
+command wrappers, including visible `eval` and `xargs ... sh -c` forms, are rejected too.
+Expansion-split terminal words such as `git${IFS}push` and
+`${GIT:-git}${IFS}push`,
+quote/backslash-composed Git names, and environment assignments
+are detected and rejected as non-canonical rather than being mistaken for unrelated commands;
+every `--fixup` commit form is also non-authorizing. An exact commit may change
+HEAD without requiring another verification; push is allowed only when that HEAD tree exactly
+materializes the recorded state.
 
 ## Requirements
 
@@ -160,6 +185,8 @@ If an older direct MCP registration is still present, remove it after the plugin
   backward compatibility.
 - To remove the guard entirely (zero footprint), delete `hooks/hooks.json` (Claude) and
   `hooks/pre/semctx-guard.ts` (OMP), or keep advisory mode (the default) where it never blocks.
+  Deleting `hooks/hooks.json` also removes the shadow lifecycle hook; to disable only the lifecycle
+  observer, set `SEMCTX_LIFECYCLE=off`.
 
 See `docs/integrations/claude-code.md`, `docs/integrations/claude-code-guarded-mode.md`,
 `docs/integrations/omp.md`, and `docs/integrations/grok.md`.

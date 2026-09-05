@@ -1,6 +1,6 @@
 {
   "name": "semctx",
-  "version": "0.1.17",
+  "version": "0.1.19",
   "private": true,
   "description": "OMP extension host for semctx (guard hook + MCP + skills).",
   "license": "Apache-2.0",
