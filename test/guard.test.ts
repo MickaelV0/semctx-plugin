@@ -1467,7 +1467,7 @@ describe("verifyRecordCommand — OMP plugin root", () => {
 describe("semctxGuard — OMP tool_call adapter", () => {
   function installHandler() {
     let handler: (
-      event: { toolName: string; input?: { command?: string; cwd?: string } },
+      event: { toolName: string; input?: { command?: string; cwd?: string; env?: Record<string, unknown> } },
       ctx: { cwd?: string },
     ) => Promise<unknown>;
     const pi = {
@@ -1502,10 +1502,79 @@ describe("semctxGuard — OMP tool_call adapter", () => {
     }
   });
 
-  it("swallows evaluator throws — OMP fail-closes on throw and would block every bash call", async () => {
+  // The host resolves `input.cwd` against the session directory only after this event, so the
+  // adapter must anchor a relative value itself; resolving against `process.cwd()` would read
+  // whichever repository the host happened to be launched from.
+  it("anchors a relative input.cwd to the session directory, not the process directory", async () => {
+    const guarded = makeGuardedTestRepo({ enabled: true });
+    const elsewhere = makeGuardedTestRepo({ enabled: false });
+    const previous = process.cwd();
+    try {
+      process.chdir(elsewhere);
+      const invoke = installHandler();
+      const result = await invoke(
+        { toolName: "bash", input: { command: "git commit -m x", cwd: "." } },
+        { cwd: guarded },
+      );
+      expect(result).toEqual(expect.objectContaining({ block: true }));
+    } finally {
+      process.chdir(previous);
+      rmSync(guarded, { recursive: true, force: true });
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  // The host passes `input.env` as real child-process environment, so a Git retargeting sent that
+  // way must fail the same checks as its inline `NAME=value` equivalent.
+  it("evaluates structured input.env exactly like an inline assignment", async () => {
+    const repo = makeGuardedTestRepo({ enabled: true });
+    const other = makeGuardedTestRepo({ enabled: false });
+    try {
+      const invoke = installHandler();
+      const inline = await invoke(
+        { toolName: "bash", input: { command: `GIT_DIR=${join(other, ".git")} git commit -m x`, cwd: repo } },
+        { cwd: repo },
+      );
+      const structured = await invoke(
+        { toolName: "bash", input: { command: "git commit -m x", cwd: repo, env: { GIT_DIR: join(other, ".git") } } },
+        { cwd: repo },
+      );
+      expect(inline).toEqual(expect.objectContaining({ block: true }));
+      expect(structured).toEqual(expect.objectContaining({ block: true }));
+      expect((structured as { reason: string }).reason).toBe((inline as { reason: string }).reason);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  // An unquoted value containing a space, quote or `$` would reshape the parse and could flip the
+  // isolated/compound decision, so the folded assignments have to be shell-quoted.
+  it("quotes folded env values so a space cannot reshape the parse", async () => {
+    const repo = makeGuardedTestRepo({ enabled: true });
+    const spaced = mkdtempSync(join(tmpdir(), "semctx guard space-"));
+    try {
+      const invoke = installHandler();
+      const result = await invoke(
+        {
+          toolName: "bash",
+          input: { command: "git commit -m x", cwd: repo, env: { GIT_DIR: join(spaced, ".git") } },
+        },
+        { cwd: repo },
+      );
+      // Blocked as a retargeting attempt, not misparsed into some other verdict.
+      expect(result).toEqual(expect.objectContaining({ block: true }));
+      expect((result as { reason: string }).reason).toContain("isolated command");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(spaced, { recursive: true, force: true });
+    }
+  });
+
+  it("never propagates a throw, so a guard failure cannot block every bash call", async () => {
     const invoke = installHandler();
     const event = new Proxy({}, { get() { throw new Error("boom"); } });
-    await expect(invoke(event as never, {})).resolves.toBeUndefined();
+    expect(await invoke(event as never, {})).toBeUndefined();
   });
 
 });
